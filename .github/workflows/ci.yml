@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -37,7 +41,9 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t nishdvops/eks-cicd-demo:latest .
+          docker build \
+            -t nishdvops/eks-cicd-demo:latest \
+            -t nishdvops/eks-cicd-demo:${{ github.sha }} .
 
       - name: Log in to Docker Hub
         if: github.event_name == 'push'
@@ -50,3 +56,29 @@ jobs:
         if: github.event_name == 'push'
         run: |
           docker push nishdvops/eks-cicd-demo:latest
+          docker push nishdvops/eks-cicd-demo:${{ github.sha }}
+
+      - name: Configure AWS credentials
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::864365984141:role/github-actions-eks-role
+          aws-region: ap-south-1
+
+      - name: Update kubeconfig
+        if: github.event_name == 'push'
+        run: |
+          aws eks update-kubeconfig \
+            --region ap-south-1 \
+            --name eks-cicd-demo
+
+      - name: Deploy to EKS with Helm
+        if: github.event_name == 'push'
+        run: |
+          helm upgrade --install eks-cicd-demo helm/eks-cicd-demo \
+            --namespace default \
+            --set image.repository=nishdvops/eks-cicd-demo \
+            --set image.tag=${{ github.sha }} \
+            --wait
+
+
